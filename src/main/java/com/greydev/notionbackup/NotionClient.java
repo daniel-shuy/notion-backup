@@ -144,6 +144,7 @@ public class NotionClient {
 	private Optional<File> downloadToFile(String url, Path downloadPath) {
 		HttpRequest request = HttpRequest.newBuilder()
 				.uri(URI.create(url))
+			        .header("Cookie", TOKEN_V2 + "=" + notionTokenV2)
 				.GET()
 				.build();
 
