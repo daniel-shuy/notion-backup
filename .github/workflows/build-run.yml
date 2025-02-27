@@ -30,6 +30,7 @@ jobs:
       env:
         NOTION_SPACE_ID: ${{ vars.NOTION_SPACE_ID }}
         NOTION_TOKEN_V2: ${{ secrets.NOTION_TOKEN_V2 }}
+        NOTION_FILE_TOKEN: ${{ secrets.NOTION_FILE_TOKEN }}
 
         GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ vars.GOOGLE_DRIVE_ROOT_FOLDER_ID }}
         GOOGLE_DRIVE_SERVICE_ACCOUNT: ${{ vars.GOOGLE_DRIVE_SERVICE_ACCOUNT }}
