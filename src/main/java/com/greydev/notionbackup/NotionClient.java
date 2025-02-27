@@ -132,6 +132,7 @@ public class NotionClient {
 			}
 
 			log.info("Download finished: {}", downloadedFile.get().getName());
+			log.info("File size: {} bytes", downloadedFile.get().length());
 			return downloadedFile;
 		} catch (IOException | InterruptedException e) {
 			log.warn("Exception during export", e);
