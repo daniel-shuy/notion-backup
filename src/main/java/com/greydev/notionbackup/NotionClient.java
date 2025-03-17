@@ -2,6 +2,7 @@ package com.greydev.notionbackup;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -24,6 +25,7 @@ import lombok.extern.slf4j.Slf4j;
 public class NotionClient {
 
 	private static final int FETCH_DOWNLOAD_URL_RETRY_SECONDS = 5;
+	private static final int TRIGGER_EXPORT_TASK_RETRY_SECONDS = 5;
 
 	private static final String ENQUEUE_ENDPOINT = "https://www.notion.so/api/v3/enqueueTask";
 	private static final String NOTIFICATION_ENDPOINT = "https://www.notion.so/api/v3/getNotificationLogV2";
@@ -164,16 +166,25 @@ public class NotionClient {
 
 
 	private Optional<String> triggerExportTask() throws IOException, InterruptedException {
-		HttpRequest request = HttpRequest.newBuilder()
-				.uri(URI.create(ENQUEUE_ENDPOINT))
-				.header("Cookie", TOKEN_V2 + "=" + notionTokenV2)
-				.header("Content-Type", "application/json")
-				.POST(HttpRequest.BodyPublishers.ofString(getTaskJson()))
-				.build();
+		for (int i = 0; i < 500; i++, sleep(TRIGGER_EXPORT_TASK_RETRY_SECONDS)) {
+			HttpRequest request = HttpRequest.newBuilder()
+					.uri(URI.create(ENQUEUE_ENDPOINT))
+					.header("Cookie", TOKEN_V2 + "=" + notionTokenV2)
+					.header("Content-Type", "application/json")
+					.POST(HttpRequest.BodyPublishers.ofString(getTaskJson()))
+					.build();
 
-		HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+			HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
-		JsonNode responseJsonNode = objectMapper.readTree(response.body());
+			var statusCode = response.statusCode();
+			if (statusCode == HttpURLConnection.HTTP_BAD_GATEWAY
+					|| statusCode == HttpURLConnection.HTTP_GATEWAY_TIMEOUT) {
+				log.error("Server timeout (HTTP {}). Trying again in {} seconds...",
+						statusCode, TRIGGER_EXPORT_TASK_RETRY_SECONDS);
+				continue;
+			}
+
+			JsonNode responseJsonNode = objectMapper.readTree(response.body());
 
 		/*	This will be the response if the given token is not valid anymore (for example if a logout occurred)
 			{
@@ -183,16 +194,18 @@ public class NotionClient {
 				"clientData":{"type":"login_try_again"}
 			}
 		 */
-		if (responseJsonNode.get("taskId") == null) {
-			JsonNode errorName = responseJsonNode.get("name");
-			log.error("Error name: {}, error message: {}", errorName, responseJsonNode.get("message"));
-			if (StringUtils.equalsIgnoreCase(errorName.toString(), "UnauthorizedError")) {
-				log.error("UnauthorizedError: seems like your token is not valid anymore. Try to log in to Notion again and replace you old token.");
+			if (responseJsonNode.get("taskId") == null) {
+				JsonNode errorName = responseJsonNode.get("name");
+				log.error("Error name: {}, error message: {}", errorName, responseJsonNode.get("message"));
+				if (StringUtils.equalsIgnoreCase(errorName.toString(), "UnauthorizedError")) {
+					log.error("UnauthorizedError: seems like your token is not valid anymore. Try to log in to Notion again and replace you old token.");
+				}
+				return Optional.empty();
 			}
-			return Optional.empty();
-		}
 
-		return Optional.of(responseJsonNode.get("taskId").asText());
+			return Optional.of(responseJsonNode.get("taskId").asText());
+		}
+		return Optional.empty();
 	}
 
 	private Optional<String> fetchDownloadUrl(long exportTriggerTimestamp) throws IOException, InterruptedException {
@@ -208,6 +221,15 @@ public class NotionClient {
 						.build();
 
 				HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+				var statusCode = response.statusCode();
+				if (statusCode == HttpURLConnection.HTTP_BAD_GATEWAY
+						|| statusCode == HttpURLConnection.HTTP_GATEWAY_TIMEOUT) {
+					log.error("Server timeout (HTTP {}). Trying again in {} seconds...",
+							statusCode, FETCH_DOWNLOAD_URL_RETRY_SECONDS);
+					continue;
+				}
+
 				JsonNode rootNode = objectMapper.readTree(response.body());
 
 				JsonNode node = rootNode.path("recordMap");
